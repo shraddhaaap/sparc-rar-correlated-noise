@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "If you use this code or these results, please cite it as below."
+title: "Correlated rotation-curve noise and RAR population trends (SPARC): code and results"
+authors:
+  - family-names: Patil
+    given-names: Shraddha
+    affiliation: "Vidyalankar Institute of Technology, University of Mumbai"
+  - family-names: Patkar
+    given-names: Shriya
+    email: shriya.patkar@gmail.com
+    affiliation: "Vidyalankar Institute of Technology, University of Mumbai"
+  - family-names: Aylani
+    given-names: Amit
+    affiliation: "Vidyalankar Institute of Technology, University of Mumbai"
+date-released: 2026-11-06
+license: MIT
+keywords: [radial acceleration relation, galaxy rotation curves, Gaussian processes, Bayesian hierarchical modelling, correlated errors, SPARC]
+# Add after creating the Zenodo archive:
+# doi: 10.5281/zenodo.XXXXXXX

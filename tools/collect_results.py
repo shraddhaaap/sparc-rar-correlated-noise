@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+"""Copy the small result files of every notebook run into this repository.
+
+Usage
+-----
+    python tools/collect_results.py  PATH/TO/RAR_Universality_Research
+    python tools/collect_results.py  PATH/TO/05_Results          # also works
+
+PATH is your Google Drive project folder (synced with Google Drive for desktop, or downloaded
+from drive.google.com as a zip and unzipped). Kaggle outputs (04L zips) must first be unzipped into
+05_Results/Diagnostics/04_GP_Debugged/ on Drive, as the 04L notebook instructs.
+
+What it does
+------------
+* Mirrors the Drive layout under  results/05_Results/...  so every run keeps its own
+  timestamped folder (e.g. Injection_Recovery_08X/20261107T101500Z/). Runs never overwrite each other.
+* Copies only small, text-like or image files (.md .csv .json .txt .log .png .pdf, each < 5 MB).
+  Posterior samples (.nc), checkpoints (.npz) and archives (.zip) stay on Drive; they are listed in
+  results/LARGE_FILES.md so the repository records where they live.
+* Is safe to run again at any time: files that are already identical are skipped, new runs are added.
+* Rebuilds results/RUNS.md, a table of every run with its notebook, status and report.
+"""
+import hashlib, os, re, shutil, sys
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[1]
+DEST = REPO / "results" / "05_Results"
+KEEP = {".md", ".csv", ".json", ".txt", ".log", ".png", ".pdf"}
+MAX_BYTES = 5 * 1024 * 1024
+RUN_RE = re.compile(r"^\d{8}T\d{6}Z$")
+
+# Reference runs: the runs behind the current headline numbers. Update this when new runs replace them.
+REFERENCE_RUNS = {
+    "20261022T095735Z": "Notebook 03, Models A-C",
+    "20261026T083032Z": "Notebook 04 (Kaggle), full Model D, provisional",
+    "20261027T161151Z": "Notebook 05, population slopes",
+    "20261028T075632Z": "Notebook 06, null A1",
+    "20261105T161628Z": "Notebook 08 v2, nulls C1/C3/C4 and power C2",
+    "20261106T081353Z": "Notebook 09 v3, sensitivity S1-S3",
+}
+NOTEBOOK_OF = {"04_GP_Debugged": "04 / 04L (Model D)", "Population_Dependence": "05", "Injection_Recovery": "06",
+               "Injection_Recovery_Extended": "08 v2", "Injection_Recovery_08X": "08X", "Sensitivity": "09"}
+
+def sha(p):
+    h = hashlib.sha256()
+    with open(p, "rb") as f:
+        for b in iter(lambda: f.read(1 << 20), b""): h.update(b)
+    return h.hexdigest()
+
+def find_root(src: Path) -> Path:
+    """Return the 05_Results folder."""
+    if (src / "05_Results").is_dir(): return src / "05_Results"
+    if src.name == "05_Results": return src
+    sys.exit(f"{src} is neither the project folder nor its 05_Results folder")
+
+def main(src: Path):
+    src = src.expanduser().resolve(); assert src.exists(), f"not found: {src}"
+    root = find_root(src)
+    copied = skipped = 0; large = []
+    for p in sorted(root.rglob("*")):
+        if not p.is_file(): continue
+        rel = p.relative_to(root)
+        if p.suffix.lower() not in KEEP or p.stat().st_size > MAX_BYTES:
+            large.append((str(rel), p.stat().st_size)); continue
+        out = DEST / rel
+        if out.exists() and out.stat().st_size == p.stat().st_size and sha(out) == sha(p):
+            skipped += 1; continue
+        out.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(p, out); copied += 1
+    write_large(large); write_runs()
+    print(f"copied {copied} files, {skipped} already up to date, {len(large)} large files listed in results/LARGE_FILES.md")
+    print("Run table: results/RUNS.md")
+
+def write_large(large):
+    f = REPO / "results" / "LARGE_FILES.md"
+    old = f.read_text().splitlines()[4:] if f.exists() else []
+    rows = sorted(set(old) | {f"| `{r}` | {s / 1e6:.1f} MB |" for r, s in large})
+    f.write_text("# Large files kept on Google Drive\n\nNot copied into git (posterior samples, checkpoints, archives). Path relative to `05_Results/`.\n\n"
+                 + "\n".join(["| File | Size |", "|---|---|"] + [r for r in rows if r.startswith("| `")]) + "\n")
+
+def write_runs():
+    rows = []
+    for d in sorted(DEST.rglob("*")):
+        if not (d.is_dir() and RUN_RE.match(d.name)): continue
+        cat = d.parent.name
+        rep = sorted(d.rglob("*Report*.md")) + sorted(d.rglob("*report*.md"))
+        checks = sorted(d.rglob("*integrity_checks*.csv"))
+        status = ""
+        if checks:
+            txt = checks[0].read_text(errors="ignore")
+            n_fail = len(re.findall(r",FAIL,", txt)); n_warn = len(re.findall(r",WARN,", txt))
+            status = f"{n_fail} FAIL, {n_warn} WARN"
+        rows.append(f"| {cat} | {NOTEBOOK_OF.get(cat, '?')} | `{d.name}` | {REFERENCE_RUNS.get(d.name, '')} | {status} | "
+                    f"{('`' + str(rep[0].relative_to(REPO / 'results')) + '`') if rep else ''} |")
+    for rid, what in REFERENCE_RUNS.items():
+        if not any(f"`{rid}`" in r for r in rows): rows.append(f"| — | — | `{rid}` | {what} | not yet collected | |")
+    (REPO / "results" / "RUNS.md").write_text(
+        "# Run registry\n\nGenerated by `tools/collect_results.py`. One row per notebook run folder. "
+        "'Reference run' marks the runs behind the current headline numbers.\n\n"
+        "| Output folder | Notebook | Run ID | Reference run | Integrity checks | Report |\n|---|---|---|---|---|---|\n" + "\n".join(rows) + "\n")
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2: print(__doc__); sys.exit(1)
+    main(Path(sys.argv[1]))
